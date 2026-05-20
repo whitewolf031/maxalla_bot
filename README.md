@@ -136,3 +136,5 @@ docker-compose up -d --build
 # DB backup
 docker exec mahalla_db pg_dump -U mahalla_user mahalla_bot > backup.sql
 ```
+git cache tozalash
+git rm -r --cached .
