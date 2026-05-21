@@ -107,34 +107,42 @@ def register_admin_handlers(bot: telebot.TeleBot):
             waiting_for_announcement.discard(message.from_user.id)
             bot.send_message(message.chat.id, "❌ Bekor qilindi.", reply_markup=keyboards.admin_menu_keyboard())
             return
-        
+
         if not middlewares.is_admin(message.from_user.id):
             waiting_for_announcement.discard(message.from_user.id)
             return
 
         waiting_for_announcement.discard(message.from_user.id)
         announcement_text = message.text
-        
+
+        # DB dan barcha chat_id larni olish
         chat_ids = api_client.get_all_chat_ids()
-        
+        logger.info(f"Elon uchun {len(chat_ids)} ta chat_id olindi: {chat_ids}")
+
+        # Guruh har doim ro'yxatda bo'lishi uchun qo'shamiz
+        from config import GROUP_CHAT_ID
+        if GROUP_CHAT_ID not in chat_ids:
+            chat_ids.append(GROUP_CHAT_ID)
+
         sent = 0
         failed = 0
-        
         full_text = f"📢 <b>ELON</b>\n\n{announcement_text}"
-        
+
         for chat_id in chat_ids:
             try:
                 bot.send_message(chat_id, full_text, parse_mode='HTML')
                 sent += 1
+                logger.info(f"  -> {chat_id} ga yuborildi")
             except Exception as e:
                 logger.warning(f"Chat {chat_id} ga yuborishda xato: {e}")
                 failed += 1
-        
+
         api_client.save_announcement(announcement_text, message.from_user.id, sent)
-        
+
         bot.send_message(
             message.chat.id,
-            f"✅ Elon {sent} ta chat ga yuborildi.\n❌ {failed} ta xato.",
+            f"✅ Elon <b>{sent}</b> ta chat ga yuborildi.\n❌ {failed} ta xato.",
+            parse_mode='HTML',
             reply_markup=keyboards.admin_menu_keyboard()
         )
 
