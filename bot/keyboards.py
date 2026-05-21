@@ -60,6 +60,16 @@ def daily_checkin_keyboard():
     return markup
 
 
+def evening_checkin_keyboard(slot: str):
+    """Kechki 'ishni tugatdingizmi?' tugmalari"""
+    markup = types.InlineKeyboardMarkup(row_width=2)
+    markup.add(
+        types.InlineKeyboardButton("✅ Ha, tugatdim", callback_data=f"evening:yes:{slot}"),
+        types.InlineKeyboardButton("❌ Yo'q, hali ishlamoqdaman", callback_data=f"evening:no:{slot}")
+    )
+    return markup
+
+
 def location_choice_keyboard():
     markup = types.InlineKeyboardMarkup(row_width=2)
     markup.add(

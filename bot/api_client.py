@@ -53,6 +53,10 @@ def get_driver_by_telegram(telegram_id):
     return _get(f'api/drivers/telegram/{telegram_id}/')
 
 
+def get_driver_by_id(driver_id):
+    return _get(f'api/drivers/{driver_id}/')
+
+
 def register_driver(data):
     return _post('api/drivers/create/', data)
 
