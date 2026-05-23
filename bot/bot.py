@@ -2,6 +2,7 @@
 """Mahalla Damas Bot"""
 import logging
 import telebot
+from telebot import apihelper
 from config import BOT_TOKEN
 from handlers import register_all_handlers
 from scheduler import setup_scheduler
