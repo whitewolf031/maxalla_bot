@@ -551,3 +551,106 @@ def register_driver_handlers(bot: telebot.TeleBot):
     def back_to_main(message):
         bot.send_message(message.chat.id, "🏠 Asosiy menyu",
                          reply_markup=keyboards.main_menu_keyboard())
+
+
+def register_myinfo_and_lastseen(bot: telebot.TeleBot):
+    """
+    /myinfo — haydovchi o'z ma'lumotlarini ko'radi va tahrirlaydi
+    last_seen — har bir xabarda yangilanadi (middlewares orqali)
+    Bu funksiya register_driver_handlers dan KEYIN chaqiriladi
+    """
+
+    # Tahrirlash holati
+    edit_states = {}
+
+    @bot.message_handler(commands=['myinfo'])
+    def cmd_myinfo(message):
+        import middlewares
+        driver = middlewares.get_driver(message.from_user.id)
+        if not driver:
+            bot.send_message(message.chat.id,
+                             "❌ Siz ro'yxatda yo'qsiz. /driver buyrug'i orqali ro'yxatdan o'ting.")
+            return
+        if driver.get('status') != 'approved':
+            bot.send_message(message.chat.id, "⏳ Profilingiz hali tasdiqlanmagan.")
+            return
+
+        _send_myinfo(bot, message.chat.id, driver)
+
+    def _send_myinfo(bot, chat_id, driver):
+        from scheduler import now_tashkent
+        last_seen = driver.get('last_seen') or "ma'lumot yo'q"
+
+        markup = types.InlineKeyboardMarkup(row_width=1)
+        markup.add(
+            types.InlineKeyboardButton("✏️ Telefon raqamni o'zgartirish", callback_data="edit:phone"),
+            types.InlineKeyboardButton("✏️ Mashina nomini o'zgartirish",  callback_data="edit:car_name"),
+            types.InlineKeyboardButton("✏️ Mashina raqamini o'zgartirish", callback_data="edit:car_number"),
+        )
+
+        bot.send_message(
+            chat_id,
+            f"👤 <b>Mening profilim</b>\n\n"
+            f"Ism: <b>{driver['full_name']}</b>\n"
+            f"📞 Telefon: <b>{driver['phone_number']}</b>\n"
+            f"🚗 Mashina: <b>{driver['car_name']}</b>\n"
+            f"🔢 Raqam: <b>{driver['car_number']}</b>\n"
+            f"🟢 Status: <b>{driver.get('status_display', '')}</b>\n"
+            f"🕐 Oxirgi faollik: <b>{last_seen}</b>",
+            parse_mode='HTML',
+            reply_markup=markup
+        )
+
+    @bot.callback_query_handler(func=lambda c: c.data.startswith('edit:'))
+    def edit_field_cb(call):
+        import middlewares
+        driver = middlewares.get_driver(call.from_user.id)
+        if not driver or driver.get('status') != 'approved':
+            bot.answer_callback_query(call.id, "⛔ Ruxsat yo'q!")
+            return
+
+        field = call.data.split(':')[1]
+        field_names = {
+            'phone':      "📞 Yangi telefon raqamni kiriting (+998XXXXXXXXX):",
+            'car_name':   "🚗 Yangi mashina nomini kiriting:",
+            'car_number': "🔢 Yangi mashina raqamini kiriting:",
+        }
+
+        edit_states[call.from_user.id] = field
+        bot.answer_callback_query(call.id)
+        bot.send_message(call.message.chat.id, field_names[field],
+                         reply_markup=keyboards.cancel_keyboard())
+
+    @bot.message_handler(func=lambda m: m.from_user.id in edit_states)
+    def process_edit(message):
+        if message.text == "❌ Bekor qilish":
+            edit_states.pop(message.from_user.id, None)
+            bot.send_message(message.chat.id, "❌ Bekor qilindi.",
+                             reply_markup=keyboards.driver_menu_keyboard())
+            return
+
+        import middlewares
+        field = edit_states.pop(message.from_user.id)
+        field_map = {
+            'phone':      'phone_number',
+            'car_name':   'car_name',
+            'car_number': 'car_number',
+        }
+        api_field = field_map[field]
+        value = message.text.strip()
+        if api_field == 'car_number':
+            value = value.upper()
+
+        result = api_client.update_driver_info(message.from_user.id, {api_field: value})
+
+        if result:
+            bot.send_message(message.chat.id,
+                             f"✅ Ma'lumot yangilandi!",
+                             reply_markup=keyboards.driver_menu_keyboard())
+            driver = middlewares.get_driver(message.from_user.id)
+            if driver:
+                _send_myinfo(bot, message.chat.id, driver)
+        else:
+            bot.send_message(message.chat.id,
+                             "❌ Xatolik yuz berdi. Qayta urinib ko'ring.",
+                             reply_markup=keyboards.driver_menu_keyboard())

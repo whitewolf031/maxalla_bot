@@ -6,20 +6,15 @@ logger = logging.getLogger(__name__)
 
 
 def is_admin(telegram_id: int) -> bool:
-    """Admin tekshiruvi"""
     return int(telegram_id) in ADMIN_IDS
 
 
 def is_approved_driver(telegram_id: int) -> bool:
-    """Tasdiqlangan haydovchi tekshiruvi"""
     driver = api_client.get_driver_by_telegram(telegram_id)
-    if driver and driver.get('status') == 'approved':
-        return True
-    return False
+    return bool(driver and driver.get('status') == 'approved')
 
 
 def get_driver(telegram_id: int):
-    """Haydovchini olish"""
     return api_client.get_driver_by_telegram(telegram_id)
 
 
@@ -36,3 +31,11 @@ def register_chat(message):
         )
     except Exception as e:
         logger.error(f"Ro'yxatdan o'tkazishda xato: {e}")
+
+
+def update_last_seen(telegram_id: int):
+    """Haydovchi har xabar yuborganda oxirgi faollik vaqtini yangilash"""
+    try:
+        api_client.update_last_seen(telegram_id)
+    except Exception as e:
+        logger.debug(f"last_seen yangilashda xato: {e}")
