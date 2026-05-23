@@ -17,6 +17,9 @@ logger = logging.getLogger(__name__)
 
 def main():
     logger.info("Mahalla Damas Bot ishga tushmoqda...")
+
+    apihelper.ENABLE_MIDDLEWARE = True
+    
     bot = telebot.TeleBot(BOT_TOKEN, parse_mode=None)
 
     # Barcha xabarlarda last_seen yangilash (faqat haydovchilar uchun — xato chiqmaydi)
