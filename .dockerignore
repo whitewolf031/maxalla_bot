@@ -1,0 +1,69 @@
+# Git
+.git/
+.gitignore
+.gitattributes
+
+# Python cache
+__pycache__/
+*.py[cod]
+*.pyo
+
+# Virtual environments
+venv/
+.venv/
+env/
+ENV/
+
+# Environment variables
+.env
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.nox/
+
+# Python cache and packaging
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+build/
+dist/
+
+# Django
+db.sqlite3
+db.sqlite3-journal
+local_settings.py
+staticfiles/
+
+# Logs
+*.log
+logs/
+
+# Telegram bot sessions
+*.session
+*.session-journal
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Documentation
+README.md
+docs/
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+
+# Docker files (if not needed inside image)
+docker-compose.yml
+Dockerfile
+.dockerignore
