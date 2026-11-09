@@ -17,7 +17,7 @@ def register_admin_handlers(bot: telebot.TeleBot):
         if not middlewares.is_admin(message.from_user.id):
             bot.send_message(message.chat.id, "⛔ Sizda admin huquqlari yo'q.")
             return
-        
+
         bot.send_message(
             message.chat.id,
             "🛡️ <b>Admin paneli</b>\n\nQuyidagi amallardan birini tanlang:",
@@ -28,13 +28,13 @@ def register_admin_handlers(bot: telebot.TeleBot):
     @bot.message_handler(func=lambda m: m.text == "📋 Kutayotgan so'rovlar" and middlewares.is_admin(m.from_user.id))
     def pending_requests(message):
         drivers = api_client.get_pending_drivers()
-        
+
         if not drivers:
             bot.send_message(message.chat.id, "✅ Hozirda kutayotgan so'rovlar yo'q.")
             return
-        
+
         bot.send_message(message.chat.id, f"📋 <b>Kutayotgan so'rovlar: {len(drivers)} ta</b>", parse_mode='HTML')
-        
+
         for driver in drivers:
             text = (
                 f"👤 <b>{driver['full_name']}</b>\n"
@@ -52,11 +52,11 @@ def register_admin_handlers(bot: telebot.TeleBot):
     @bot.message_handler(func=lambda m: m.text == "✅ Tasdiqlangan haydovchilar" and middlewares.is_admin(m.from_user.id))
     def approved_drivers_admin(message):
         drivers = api_client.get_approved_drivers()
-        
+
         if not drivers:
             bot.send_message(message.chat.id, "📋 Hozirda tasdiqlangan haydovchilar yo'q.")
             return
-        
+
         text = f"✅ <b>Tasdiqlangan haydovchilar ({len(drivers)} ta):</b>\n\n"
         for i, d in enumerate(drivers, 1):
             text += (
@@ -64,7 +64,7 @@ def register_admin_handlers(bot: telebot.TeleBot):
                 f"   📞 {d['phone_number']}\n"
                 f"   🚗 {d['car_name']} | {d['car_number']}\n\n"
             )
-        
+
         bot.send_message(message.chat.id, text, parse_mode='HTML')
 
     @bot.message_handler(func=lambda m: m.text == "📊 Bugungi holat" and middlewares.is_admin(m.from_user.id))
@@ -72,23 +72,23 @@ def register_admin_handlers(bot: telebot.TeleBot):
         working = api_client.get_today_statuses(status='working')
         not_working = api_client.get_today_statuses(status='not_working')
         pending = api_client.get_today_statuses(status='pending')
-        
+
         text = "📊 <b>Bugungi holat:</b>\n\n"
-        
+
         text += f"✅ <b>Ishlamoqda ({len(working)} ta):</b>\n"
         for d in working:
             loc = f" ({d.get('location', '')})" if d.get('location') else ""
             text += f"  • {d['driver_name']} - {d['car_number']}{loc}\n"
-        
+
         text += f"\n❌ <b>Ishlamayapti ({len(not_working)} ta):</b>\n"
         for d in not_working:
             text += f"  • {d['driver_name']}\n"
-        
+
         if pending:
             text += f"\n⏳ <b>Javob bermagan ({len(pending)} ta):</b>\n"
             for d in pending:
                 text += f"  • {d['driver_name']}\n"
-        
+
         bot.send_message(message.chat.id, text, parse_mode='HTML')
 
     @bot.message_handler(func=lambda m: m.text == "📢 Elon tarqatish" and middlewares.is_admin(m.from_user.id))
@@ -153,13 +153,13 @@ def register_admin_handlers(bot: telebot.TeleBot):
         if not middlewares.is_admin(call.from_user.id):
             bot.answer_callback_query(call.id, "⛔ Ruxsat yo'q!")
             return
-        
+
         driver_id = int(call.data.split(':')[1])
         result = api_client.approve_driver(driver_id)
-        
+
         if result:
             driver = result.get('driver', {})
-            
+
             # Haydovchiga xabar yuborish
             try:
                 bot.send_message(
@@ -168,16 +168,28 @@ def register_admin_handlers(bot: telebot.TeleBot):
                     "Endi /driver buyrug'i orqali haydovchi panelidan foydalanishingiz mumkin.",
                     parse_mode='HTML'
                 )
-            except Exception:
-                pass
-            
+            except Exception as e:
+                logger.warning(f"Haydovchiga ({driver.get('telegram_id')}) tasdiqlash xabari yuborishda xato: {e}")
+
             bot.edit_message_text(
                 f"✅ <b>{driver.get('full_name', '')}</b> tasdiqlandi!",
                 call.message.chat.id,
                 call.message.message_id,
                 parse_mode='HTML'
             )
-        
+
+            # WebSocket broadcast
+            try:
+                from websocket_server import ws_server
+                ws_server.broadcast({
+                    "event": "driver_approved",
+                    "driver_id": driver_id,
+                    "driver_name": driver.get('full_name'),
+                    "telegram_id": driver.get('telegram_id')
+                })
+            except Exception:
+                pass
+
         bot.answer_callback_query(call.id, "✅ Tasdiqlandi!")
 
     @bot.callback_query_handler(func=lambda c: c.data.startswith('reject_driver:'))
@@ -185,15 +197,41 @@ def register_admin_handlers(bot: telebot.TeleBot):
         if not middlewares.is_admin(call.from_user.id):
             bot.answer_callback_query(call.id, "⛔ Ruxsat yo'q!")
             return
-        
+
         driver_id = int(call.data.split(':')[1])
         result = api_client.reject_driver(driver_id)
-        
+
         if result:
+            driver = result.get('driver', {})
+            tg_id = driver.get('telegram_id')
+            if tg_id:
+                try:
+                    bot.send_message(
+                        tg_id,
+                        "❌ <b>Afsuski, sizning so'rovingiz rad etildi.</b>\n\n"
+                        "Ma'lumotlaringizni to'g'rilab /driver orqali qayta ariza topshirishingiz mumkin.",
+                        parse_mode='HTML'
+                    )
+                except Exception as e:
+                    logger.warning(f"Haydovchiga ({tg_id}) rad etish xabarini yuborishda xato: {e}")
+
             bot.edit_message_text(
-                f"❌ Haydovchi rad etildi.",
+                f"❌ <b>{driver.get('full_name', 'Haydovchi')}</b> rad etildi.",
                 call.message.chat.id,
                 call.message.message_id,
+                parse_mode='HTML'
             )
-        
+
+            # WebSocket broadcast
+            try:
+                from websocket_server import ws_server
+                ws_server.broadcast({
+                    "event": "driver_rejected",
+                    "driver_id": driver_id,
+                    "driver_name": driver.get('full_name'),
+                    "telegram_id": tg_id
+                })
+            except Exception:
+                pass
+
         bot.answer_callback_query(call.id, "❌ Rad etildi.")

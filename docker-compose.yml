@@ -24,6 +24,7 @@ services:
     container_name: mahalla_backend
     restart: always
     networks:
+      - default
       - shared-db
     env_file:
       - .env
@@ -34,7 +35,7 @@ services:
       - backend_media:/app/media
     command: >
       sh -c "/app/entrypoint.sh &&
-             gunicorn core.wsgi:application --bind 0.0.0.0:8005 --workers 3 --timeout 120 --access-logfile - --error-logfile -"
+             gunicorn core.wsgi:application --bind 0.0.0.0:8000 --workers 3 --timeout 120 --access-logfile - --error-logfile -"
 
   bot:
     build:
@@ -42,10 +43,15 @@ services:
       dockerfile: Dockerfile
     container_name: mahalla_bot
     restart: always
+    networks:
+      - default
+      - shared-db
     env_file:
       - .env
     environment:
       - BACKEND_URL=http://backend:8000
+    ports:
+      - "8765:8765"
     depends_on:
       - backend
     volumes:
@@ -57,5 +63,6 @@ volumes:
   backend_media:
 
 networks:
+  default:
   shared-db:
     external: true

@@ -16,12 +16,15 @@ class DriverSerializer(serializers.ModelSerializer):
 
 
 class DriverCreateSerializer(serializers.ModelSerializer):
+    status_display = serializers.CharField(source='get_status_display', read_only=True)
+
     class Meta:
         model = Driver
         fields = [
-            'full_name', 'phone_number', 'car_name', 'car_number',
-            'telegram_id', 'telegram_username'
+            'id', 'full_name', 'phone_number', 'car_name', 'car_number',
+            'telegram_id', 'telegram_username', 'status', 'status_display'
         ]
+        read_only_fields = ['id', 'status']
 
 
 class DailyStatusSerializer(serializers.ModelSerializer):

@@ -6,6 +6,7 @@ from telebot import apihelper
 from config import BOT_TOKEN
 from handlers import register_all_handlers
 from scheduler import setup_scheduler
+from websocket_server import ws_server
 import middlewares
 
 logging.basicConfig(
@@ -20,7 +21,7 @@ def main():
     logger.info("Mahalla Damas Bot ishga tushmoqda...")
 
     apihelper.ENABLE_MIDDLEWARE = True
-    
+
     bot = telebot.TeleBot(BOT_TOKEN, parse_mode=None)
 
     # Barcha xabarlarda last_seen yangilash (faqat haydovchilar uchun — xato chiqmaydi)
@@ -32,7 +33,11 @@ def main():
     register_all_handlers(bot)
     logger.info("Handlerlar ro'yxatdan o'tkazildi.")
 
+    # APScheduler (ertalabki, kechki va oraliq so'rovlar)
     setup_scheduler(bot)
+
+    # WebSocket Server ishga tushirish
+    ws_server.start(bot)
 
     try:
         me = bot.get_me()
