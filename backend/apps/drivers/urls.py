@@ -16,4 +16,5 @@ urlpatterns = [
     path('status/set/', views.SetDailyStatusView.as_view(), name='status-set'),
     path('status/working/', views.WorkingDriversTodayView.as_view(), name='status-working'),
     path('status/location/', views.DriverLocationUpdateView.as_view(), name='status-location'),
+    path('status/reset/', views.ResetDailyLocationsView.as_view(), name='status-reset'),
 ]

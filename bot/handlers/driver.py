@@ -19,6 +19,7 @@ def register_driver_handlers(bot: telebot.TeleBot):
     # ── /driver buyrug'i ─────────────────────────────────────
 
     @bot.message_handler(commands=['driver'])
+    @bot.message_handler(func=lambda m: m.text == "🚗 Haydovchi paneli")
     def cmd_driver(message):
         driver = middlewares.get_driver(message.from_user.id)
 
@@ -35,9 +36,14 @@ def register_driver_handlers(bot: telebot.TeleBot):
             return
 
         if status == 'rejected':
-            bot.send_message(message.chat.id,
-                             "❌ Sizning so'rovingiz rad etilgan.\n"
-                             "Murojaat uchun admin bilan bog'laning.")
+            markup = types.InlineKeyboardMarkup()
+            markup.add(types.InlineKeyboardButton("📝 Qayta ariza topshirish", callback_data=f"reregister:{message.from_user.id}"))
+            bot.send_message(
+                message.chat.id,
+                "❌ Sizning so'rovingiz rad etilgan.\n\n"
+                "Qaytadan ma'lumotlaringizni to'g'rilab ariza topshirishingiz mumkin:",
+                reply_markup=markup
+            )
             return
 
         if status == 'approved':
@@ -127,6 +133,15 @@ def register_driver_handlers(bot: telebot.TeleBot):
             parse_mode='HTML', reply_markup=markup
         )
 
+    @bot.callback_query_handler(func=lambda c: c.data.startswith('reregister:'))
+    def reregister_callback(call):
+        uid = int(call.data.split(':')[1])
+        if call.from_user.id != uid:
+            bot.answer_callback_query(call.id, "Ruxsat yo'q!")
+            return
+        bot.answer_callback_query(call.id)
+        _start_registration(bot, call.message)
+
     @bot.callback_query_handler(func=lambda c: c.data.startswith('reg_confirm:'))
     def confirm_registration(call):
         uid = int(call.data.split(':')[1])
@@ -137,34 +152,100 @@ def register_driver_handlers(bot: telebot.TeleBot):
         data = registration_data.get(uid, {})
         data['telegram_id'] = uid
         data['telegram_username'] = call.from_user.username
-        result = api_client.register_driver(data)
 
-        if result:
+        logger.info(f"Haydovchi ro'yxatdan o'tmoqda: telegram_id={uid}, data={data}")
+        result = api_client.register_driver(data)
+        logger.info(f"Backend register_driver javobi: {result}")
+
+        if not result:
+            bot.answer_callback_query(call.id, "Xatolik yuz berdi. Backend bilan aloqa yo'q.")
+            return
+
+        # Agar allaqachon tasdiqlangan bo'lsa
+        if result.get('status') == 'approved':
             user_states.pop(uid, None)
             registration_data.pop(uid, None)
             bot.edit_message_text(
-                "✅ So'rovingiz yuborildi!\n\n"
-                "⏳ Admin ko'rib chiqadi va tasdiqlaydi.\n"
-                "Tasdiqlangandan so'ng xabar olasiz.",
+                "✅ Siz allaqachon tasdiqlangan haydovchisiz!\n\n"
+                "/driver buyrug'i orqali haydovchi paneliga kirishingiz mumkin.",
                 call.message.chat.id, call.message.message_id
             )
-            from config import ADMIN_IDS
-            for admin_id in ADMIN_IDS:
-                try:
-                    bot.send_message(
-                        admin_id,
-                        f"🆕 <b>Yangi haydovchi so'rovi!</b>\n\n"
-                        f"👤 {data['full_name']}\n"
-                        f"📞 {data['phone_number']}\n"
-                        f"🚗 {data['car_name']} | {data['car_number']}\n"
-                        f"🆔 TG: <code>{uid}</code>",
-                        parse_mode='HTML',
-                        reply_markup=keyboards.driver_approval_keyboard(result['id'])
-                    )
-                except Exception:
-                    pass
-        else:
-            bot.answer_callback_query(call.id, "Xatolik yuz berdi. Qayta urinib ko'ring.")
+            return
+
+        driver_id = result.get('id')
+        if not driver_id and 'driver' in result and isinstance(result['driver'], dict):
+            driver_id = result['driver'].get('id')
+
+        if not driver_id:
+            logger.error(f"register_driver javobida 'id' topilmadi: {result}")
+            bot.answer_callback_query(call.id, "So'rov yuborishda xatolik yuz berdi.")
+            return
+
+        # Ro'yxatdan o'tish muvaffaqiyatli
+        user_states.pop(uid, None)
+        registration_data.pop(uid, None)
+
+        bot.edit_message_text(
+            "✅ <b>So'rovingiz qabul qilindi va adminga yuborildi!</b>\n\n"
+            "⏳ Admin ko'rib chiqadi va tasdiqlaydi.\n"
+            "Tasdiqlangandan so'ng sizga xabar yuboriladi.",
+            call.message.chat.id,
+            call.message.message_id,
+            parse_mode='HTML'
+        )
+
+        full_name = data.get('full_name') or result.get('full_name', 'Noma\'lum')
+        phone_number = data.get('phone_number') or result.get('phone_number', 'Noma\'lum')
+        car_name = data.get('car_name') or result.get('car_name', 'Noma\'lum')
+        car_number = data.get('car_number') or result.get('car_number', 'Noma\'lum')
+        username_str = f"@{call.from_user.username}" if call.from_user.username else "Yo'q"
+
+        admin_text = (
+            f"🆕 <b>Yangi haydovchi so'rovi!</b>\n\n"
+            f"👤 Ism: <b>{full_name}</b>\n"
+            f"📞 Telefon: <b>{phone_number}</b>\n"
+            f"🚗 Avtomobil: <b>{car_name}</b> | <code>{car_number}</code>\n"
+            f"🌐 Username: {username_str}\n"
+            f"🆔 Telegram ID: <code>{uid}</code>\n"
+            f"🔢 Haydovchi ID: <code>{driver_id}</code>"
+        )
+
+        from config import ADMIN_IDS
+        if not ADMIN_IDS:
+            logger.warning("DIQQAT: ADMIN_IDS ro'yxati bo'sh! Yangi haydovchi so'rovi hech kimga yuborilmadi.")
+
+        sent_to_admins = 0
+        for admin_id in ADMIN_IDS:
+            try:
+                bot.send_message(
+                    admin_id,
+                    admin_text,
+                    parse_mode='HTML',
+                    reply_markup=keyboards.driver_approval_keyboard(driver_id)
+                )
+                sent_to_admins += 1
+                logger.info(f"✅ Yangi haydovchi so'rovi adminga ({admin_id}) muvaffaqiyatli yuborildi.")
+            except Exception as e:
+                logger.error(
+                    f"❌ Adminga ({admin_id}) haydovchi so'rovini yuborishda xatolik: {e}. "
+                    f"Eslatma: Admin botga kamida bir marta /start bosgan bo'lishi shart!"
+                )
+
+        # WebSocket mijozlariga broadcast
+        try:
+            from websocket_server import ws_server
+            ws_server.broadcast({
+                "event": "new_driver_application",
+                "driver_id": driver_id,
+                "telegram_id": uid,
+                "full_name": full_name,
+                "phone_number": phone_number,
+                "car_name": car_name,
+                "car_number": car_number,
+                "status": "pending"
+            })
+        except Exception as e:
+            logger.debug(f"WS broadcast xatosi: {e}")
 
     @bot.callback_query_handler(func=lambda c: c.data.startswith('reg_cancel:'))
     def cancel_registration(call):
@@ -544,6 +625,108 @@ def register_driver_handlers(bot: telebot.TeleBot):
         bot.answer_callback_query(call.id, "✅ Guruhga xabar yuborildi!")
         bot.send_message(call.message.chat.id,
                          f"✅ Harakatlanish holati yangilandi va guruhga yuborildi!\n🕐 {now}")
+
+        try:
+            from websocket_server import ws_server
+            ws_server.broadcast({
+                "event": "location_update",
+                "telegram_id": call.from_user.id,
+                "driver_id": driver.get('id'),
+                "driver_name": driver.get('full_name'),
+                "car_name": driver.get('car_name'),
+                "car_number": driver.get('car_number'),
+                "location": location,
+                "moving_direction": direction,
+                "timestamp": now
+            })
+        except Exception:
+            pass
+
+    # ── Vaqt oralig'idagi so'rov (loc_prompt) ──────────────────
+
+    @bot.callback_query_handler(func=lambda c: c.data.startswith('loc_prompt:'))
+    def loc_prompt_cb(call):
+        action = call.data.split(':', 1)[1]
+        uid = call.from_user.id
+        driver = middlewares.get_driver(uid)
+
+        if not driver or driver.get('status') != 'approved':
+            bot.answer_callback_query(call.id, "⛔ Siz tasdiqlangan haydovchi emassiz.")
+            return
+
+        now = now_tashkent()
+        driver_name = driver.get('full_name', 'Haydovchi')
+        car_info = f"{driver.get('car_name', '')} | <code>{driver.get('car_number', '')}</code>"
+
+        if action == 'mahalla':
+            api_client.update_driver_location(uid, 'mahalla')
+            loc_title = "🏘️ Mahallada (astanovkada)"
+            group_msg = f"📍 <b>{driver_name}</b> ({car_info})\nMahalladagi astanovkada turibdi! ✅\n🕐 {now}"
+            ws_loc = "mahalla"
+            ws_dir = None
+        elif action == 'oydin':
+            api_client.update_driver_location(uid, 'oydin')
+            loc_title = "🚏 Oydin astanovka"
+            group_msg = f"📍 <b>{driver_name}</b> ({car_info})\nOydin astanovkada turibdi! ✅\n🕐 {now}"
+            ws_loc = "oydin"
+            ws_dir = None
+        elif action == 'moving_mahalla':
+            api_client.update_driver_location(uid, 'mahalla', 'mahalla_to_oydin')
+            loc_title = "🚗 Mahalladan Oydin tomon yo'lda"
+            group_msg = f"🚗 <b>{driver_name}</b> ({car_info})\nMahalladan Oydin tomon yo'lga chiqdi! 🚏\n🕐 {now}"
+            ws_loc = "mahalla"
+            ws_dir = "mahalla_to_oydin"
+        elif action == 'moving_oydin':
+            api_client.update_driver_location(uid, 'oydin', 'oydin_to_mahalla')
+            loc_title = "↩️ Oydindan Mahalla tomon yo'lda"
+            group_msg = f"↩️ <b>{driver_name}</b> ({car_info})\nOydindan Mahalla tomon qaytmoqda! 🏘️\n🕐 {now}"
+            ws_loc = "oydin"
+            ws_dir = "oydin_to_mahalla"
+        elif action == 'pause':
+            api_client.set_daily_status(uid, 'working', location='Tanaffus')
+            loc_title = "⏸️ Tanaffusda"
+            group_msg = f"⏸️ <b>{driver_name}</b> ({car_info})\nQisqa tanaffusga chiqdi.\n🕐 {now}"
+            ws_loc = "tanaffus"
+            ws_dir = None
+        else:
+            bot.answer_callback_query(call.id, "Noma'lum amal.")
+            return
+
+        bot.answer_callback_query(call.id, f"✅ Qabul qilindi: {loc_title}")
+
+        try:
+            bot.edit_message_text(
+                f"✅ <b>Joylashuvingiz qabul qilindi:</b> {loc_title}\n"
+                f"🕐 {now}\n\n"
+                f"<i>Rahmat! Harakatingiz xavfsiz bo'lsin.</i>",
+                call.message.chat.id,
+                call.message.message_id,
+                parse_mode='HTML'
+            )
+        except Exception:
+            pass
+
+        try:
+            bot.send_message(GROUP_CHAT_ID, group_msg, parse_mode='HTML')
+        except Exception as e:
+            logger.error(f"Guruhga joylashuv xabarini yuborishda xato: {e}")
+
+        try:
+            from websocket_server import ws_server
+            ws_server.broadcast({
+                "event": "location_update",
+                "telegram_id": uid,
+                "driver_id": driver.get('id'),
+                "driver_name": driver_name,
+                "car_name": driver.get('car_name'),
+                "car_number": driver.get('car_number'),
+                "location": ws_loc,
+                "moving_direction": ws_dir,
+                "location_title": loc_title,
+                "timestamp": now
+            })
+        except Exception as e:
+            logger.debug(f"WS broadcast xatosi: {e}")
 
     # ── Asosiy menyu ─────────────────────────────────────────
 

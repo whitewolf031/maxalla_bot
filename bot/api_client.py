@@ -32,6 +32,17 @@ def _post(endpoint, data):
         return None
 
 
+def _patch(endpoint, data):
+    try:
+        url = f"{BACKEND_URL}/{endpoint}"
+        r = requests.patch(url, headers=HEADERS, json=data, timeout=10)
+        r.raise_for_status()
+        return r.json()
+    except Exception as e:
+        logger.error(f"PATCH {endpoint} xatosi: {e}")
+        return None
+
+
 # ---- Drivers ----
 
 def get_all_drivers(status=None):
@@ -69,6 +80,17 @@ def reject_driver(driver_id):
     return _post(f'api/drivers/{driver_id}/reject/', {})
 
 
+def update_driver_info(telegram_id, data):
+    driver = get_driver_by_telegram(telegram_id)
+    if driver and driver.get('id'):
+        return _patch(f"api/drivers/{driver['id']}/", data)
+    return None
+
+
+def update_last_seen(telegram_id):
+    return True
+
+
 # ---- Daily Status ----
 
 def set_daily_status(telegram_id, status, location=None, moving_direction=None):
@@ -98,6 +120,10 @@ def update_driver_location(telegram_id, location, moving_direction=None):
     if moving_direction:
         data['moving_direction'] = moving_direction
     return _post('api/drivers/status/location/', data)
+
+
+def reset_daily_locations():
+    return _post('api/drivers/status/reset/', {})
 
 
 # ---- Users ----

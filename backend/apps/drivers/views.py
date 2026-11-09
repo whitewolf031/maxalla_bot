@@ -28,13 +28,31 @@ class DriverCreateView(generics.CreateAPIView):
 
     def create(self, request, *args, **kwargs):
         telegram_id = request.data.get('telegram_id')
-        if Driver.objects.filter(telegram_id=telegram_id).exists():
-            driver = Driver.objects.get(telegram_id=telegram_id)
-            return Response(
-                {'detail': 'Haydovchi allaqachon mavjud', 'status': driver.status},
-                status=status.HTTP_200_OK
-            )
-        return super().create(request, *args, **kwargs)
+        driver = Driver.objects.filter(telegram_id=telegram_id).first()
+        if driver:
+            if driver.status == Driver.STATUS_APPROVED:
+                return Response(
+                    {
+                        'detail': 'Haydovchi allaqachon mavjud va tasdiqlangan',
+                        'status': driver.status,
+                        'id': driver.id,
+                        'driver': DriverSerializer(driver).data
+                    },
+                    status=status.HTTP_200_OK
+                )
+            # Pending yoki rejected bo'lsa, ma'lumotlarni yangilab, yana pending qilamiz
+            serializer = self.get_serializer(driver, data=request.data, partial=True)
+            serializer.is_valid(raise_exception=True)
+            driver.status = Driver.STATUS_PENDING
+            serializer.save()
+            return Response(DriverSerializer(driver).data, status=status.HTTP_200_OK)
+
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        self.perform_create(serializer)
+        headers = self.get_success_headers(serializer.data)
+        driver = Driver.objects.get(id=serializer.instance.id)
+        return Response(DriverSerializer(driver).data, status=status.HTTP_201_CREATED, headers=headers)
 
 
 class DriverDetailView(generics.RetrieveUpdateDestroyAPIView):
@@ -69,7 +87,7 @@ class DriverRejectView(APIView):
         driver = get_object_or_404(Driver, pk=pk)
         driver.status = Driver.STATUS_REJECTED
         driver.save()
-        return Response({'detail': 'Haydovchi rad etildi'})
+        return Response({'detail': 'Haydovchi rad etildi', 'driver': DriverSerializer(driver).data})
 
 
 class PendingDriversView(generics.ListAPIView):
@@ -173,3 +191,11 @@ class DriverLocationUpdateView(APIView):
         daily_status.save()
 
         return Response({'detail': 'Joylashuv yangilandi', 'location': location})
+ 
+ 
+class ResetDailyLocationsView(APIView):
+    """Kunning oxirida yoki yarim kechada haydovchilar joylashuvini tozalash"""
+    def post(self, request):
+        today = timezone.now().date()
+        updated_count = DailyStatus.objects.filter(date=today).update(location=None, moving_direction=None)
+        return Response({'detail': f"{updated_count} ta haydovchi joylashuvi tozalandi", 'count': updated_count})

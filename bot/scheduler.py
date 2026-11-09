@@ -1,10 +1,18 @@
 import logging
-import pytz
 from datetime import datetime
-from apscheduler.schedulers.background import BackgroundScheduler
+try:
+    import pytz
+    TASHKENT_TZ = pytz.timezone('Asia/Tashkent')
+except ImportError:
+    from zoneinfo import ZoneInfo
+    TASHKENT_TZ = ZoneInfo('Asia/Tashkent')
+
+try:
+    from apscheduler.schedulers.background import BackgroundScheduler
+except ImportError:
+    BackgroundScheduler = None
 
 logger = logging.getLogger(__name__)
-TASHKENT_TZ = pytz.timezone('Asia/Tashkent')
 
 
 def now_tashkent() -> str:
@@ -97,6 +105,79 @@ def send_daily_report(bot):
         logger.error(f"Guruhga hisobot yuborishda xato: {e}")
 
 
+# ── Vaqt oralig'ida haydovchilardan joylashuv so'rash (WebSocket / Avtomat) ──
+def prompt_active_drivers_location(bot) -> int:
+    """
+    Ishlayotgan barcha haydovchilarga vaqt oralig'ida:
+    'Qayerdasiz yoki qaysi astanovkadasiz?' deb so'rov yuborish.
+    """
+    import api_client
+    import keyboards
+    from config import LOCATION_PROMPT_START_HOUR, LOCATION_PROMPT_END_HOUR
+
+    now_dt = datetime.now(TASHKENT_TZ)
+    # Faqat belgilangan soatlar oralig'ida yuboriladi
+    if not (LOCATION_PROMPT_START_HOUR <= now_dt.hour <= LOCATION_PROMPT_END_HOUR):
+        logger.debug(f"Hozir ish soati emas ({now_dt.hour}:00). Joylashuv so'rovi yuborilmadi.")
+        return 0
+
+    logger.info("⏰ Vaqt oralig'ida haydovchilarga joylashuv so'rovi yuborilmoqda...")
+    working = api_client.get_today_statuses(status='working')
+    if not working:
+        logger.info("Bugun ayni damda ishlayotgan haydovchilar yo'q.")
+        return 0
+
+    sent_count = 0
+    now_str = now_tashkent()
+
+    for d in working:
+        if d.get('moving_direction') == 'finished':
+            continue
+
+        driver_info = api_client.get_driver_by_id(d['driver'])
+        if not driver_info or not driver_info.get('telegram_id'):
+            continue
+
+        tg_id = driver_info['telegram_id']
+        driver_name = driver_info.get('full_name', 'Haydovchi')
+        car_info = f"{driver_info.get('car_name', '')} | <code>{driver_info.get('car_number', '')}</code>"
+
+        text = (
+            f"📍 <b>Hurmatli {driver_name}!</b>\n\n"
+            f"🚙 {car_info}\n"
+            f"🕐 {now_str}\n\n"
+            f"<b>Qayerdasiz yoki qaysi astanovkadasiz?</b>\n"
+            f"Iltimos, hozirgi joylashuvingizni tanlang:"
+        )
+
+        try:
+            bot.send_message(
+                tg_id,
+                text,
+                parse_mode='HTML',
+                reply_markup=keyboards.driver_location_prompt_keyboard()
+            )
+            sent_count += 1
+            logger.info(f"  ✓ {driver_name} ({tg_id}) ga joylashuv so'rovi yuborildi.")
+        except Exception as e:
+            logger.warning(f"  ✗ {tg_id} ga joylashuv so'rovini yuborishda xato: {e}")
+
+    logger.info(f"Joylashuv so'rovi {sent_count} ta haydovchiga yuborildi.")
+
+    # WebSocket mijozlariga event yuborish
+    try:
+        from websocket_server import ws_server
+        ws_server.broadcast({
+            "event": "location_prompts_dispatched",
+            "sent_count": sent_count,
+            "timestamp": now_str
+        })
+    except Exception as e:
+        logger.debug(f"WS broadcast xatosi: {e}")
+
+    return sent_count
+
+
 # ── 20:00 / 20:30 / 21:00 — Kechki so'rov ───────────────────
 def send_evening_checkin(bot, slot: str):
     import api_client
@@ -150,11 +231,13 @@ def reset_at_midnight(bot):
 
 # ── Scheduler sozlash ─────────────────────────────────────────
 def setup_scheduler(bot):
+    from config import LOCATION_PROMPT_INTERVAL_MINUTES
+
     scheduler = BackgroundScheduler(timezone=TASHKENT_TZ)
 
-    scheduler.add_job(send_morning_checkin, 'cron', hour=5,  minute=0,
+    scheduler.add_job(send_morning_checkin, 'cron', hour=5, minute=0,
                       args=[bot], id='morning_checkin')
-    scheduler.add_job(send_daily_report,    'cron', hour=5,  minute=15,
+    scheduler.add_job(send_daily_report, 'cron', hour=5, minute=15,
                       args=[bot], id='daily_report')
     scheduler.add_job(send_evening_checkin, 'cron', hour=20, minute=0,
                       args=[bot, '20:00'], id='evening_2000')
@@ -162,15 +245,21 @@ def setup_scheduler(bot):
                       args=[bot, '20:30'], id='evening_2030')
     scheduler.add_job(send_evening_checkin, 'cron', hour=21, minute=0,
                       args=[bot, '21:00'], id='evening_2100')
-    scheduler.add_job(reset_at_midnight,    'cron', hour=0,  minute=0,
+    scheduler.add_job(reset_at_midnight, 'cron', hour=0, minute=0,
                       args=[bot], id='midnight_reset')
+
+    # Vaqt oralig'ida haydovchilarga joylashuv so'rovini yuborish
+    scheduler.add_job(prompt_active_drivers_location, 'interval',
+                      minutes=LOCATION_PROMPT_INTERVAL_MINUTES,
+                      args=[bot], id='location_prompts')
 
     scheduler.start()
     logger.info(
-        "✅ APScheduler ishga tushdi (Asia/Tashkent):\n"
-        "   00:00 — Yarim kechada tozalash\n"
-        "   05:00 — Ertalabki so'rov\n"
-        "   05:15 — Kunlik hisobot guruhga\n"
-        "   20:00 / 20:30 / 21:00 — Kechki so'rov"
+        f"✅ APScheduler ishga tushdi (Asia/Tashkent):\n"
+        f"   00:00 — Yarim kechada tozalash\n"
+        f"   05:00 — Ertalabki so'rov\n"
+        f"   05:15 — Kunlik hisobot guruhga\n"
+        f"   Har {LOCATION_PROMPT_INTERVAL_MINUTES} daqiqada — Haydovchilarga 'Qayerdasiz?' so'rovi\n"
+        f"   20:00 / 20:30 / 21:00 — Kechki so'rov"
     )
     return scheduler

@@ -6,6 +6,7 @@ from telebot import types
 def main_menu_keyboard():
     markup = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
     markup.add(
+        types.KeyboardButton("🚗 Haydovchi paneli"),
         types.KeyboardButton("🚌 Haydovchilar ma'lumoti"),
         types.KeyboardButton("📍 Qayerda turish?"),
         types.KeyboardButton("📅 Bugungi jadval"),
@@ -99,6 +100,19 @@ def driver_location_keyboard():
         types.InlineKeyboardButton("↩️ Oydindan Mahalla tomon qaytdim", callback_data="moving:oydin_to_mahalla"),
         types.InlineKeyboardButton("🏘️ Mahallada turibman",             callback_data="location:mahalla"),
         types.InlineKeyboardButton("🚏 Oydinda turibman",               callback_data="location:oydin"),
+    )
+    return markup
+
+
+def driver_location_prompt_keyboard():
+    """Vaqt oralig'ida yuboriladigan so'rov: 'Qayerdasiz yoki qaysi astanovkadasiz?'"""
+    markup = types.InlineKeyboardMarkup(row_width=2)
+    markup.add(
+        types.InlineKeyboardButton("🏘️ Mahallada",             callback_data="loc_prompt:mahalla"),
+        types.InlineKeyboardButton("🚏 Oydin astanovka",        callback_data="loc_prompt:oydin"),
+        types.InlineKeyboardButton("🚗 Oydin tomon yo'lda",     callback_data="loc_prompt:moving_mahalla"),
+        types.InlineKeyboardButton("↩️ Mahalla tomon yo'lda",   callback_data="loc_prompt:moving_oydin"),
+        types.InlineKeyboardButton("⏸️ Tanaffusdaman",          callback_data="loc_prompt:pause")
     )
     return markup
 
