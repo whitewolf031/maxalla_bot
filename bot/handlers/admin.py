@@ -3,11 +3,15 @@ import logging
 import keyboards
 import middlewares
 import api_client
+import bot_settings
 
 logger = logging.getLogger(__name__)
 
 # Elon kutish holati
 waiting_for_announcement = set()
+
+# Ish boshlash vaqtini kiritish holati
+waiting_for_work_time = set()
 
 
 def register_admin_handlers(bot: telebot.TeleBot):
@@ -18,12 +22,153 @@ def register_admin_handlers(bot: telebot.TeleBot):
             bot.send_message(message.chat.id, "⛔ Sizda admin huquqlari yo'q.")
             return
 
+        start_str = bot_settings.get_work_start_time_str()
+        rep_str = bot_settings.get_daily_report_time_str()
+
         bot.send_message(
             message.chat.id,
-            "🛡️ <b>Admin paneli</b>\n\nQuyidagi amallardan birini tanlang:",
+            f"🛡️ <b>Admin paneli</b>\n\n"
+            f"⏰ <b>Ertalabki ish vaqti:</b> <code>{start_str}</code> (Hisobot: <code>{rep_str}</code>)\n\n"
+            f"Quyidagi amallardan birini tanlang:",
             parse_mode='HTML',
             reply_markup=keyboards.admin_menu_keyboard()
         )
+
+    # ── Ish boshlash vaqti sozlamalari ───────────────────────
+
+    @bot.message_handler(func=lambda m: m.text == "⏰ Ish boshlash vaqti" and middlewares.is_admin(m.from_user.id))
+    def show_work_time_menu(message):
+        start_str = bot_settings.get_work_start_time_str()
+        rep_str = bot_settings.get_daily_report_time_str()
+
+        text = (
+            f"⏰ <b>Ertalabki ish boshlash vaqti sozlamalari</b>\n\n"
+            f"🌅 <b>Hozirgi vaqt:</b> <code>{start_str}</code> (Har kuni ertalab)\n"
+            f"📊 <b>Guruhga hisobot vaqti:</b> <code>{rep_str}</code> (15 daqiqadan so'ng)\n\n"
+            f"ℹ️ Har kuni ertalab <b>{start_str}</b> da barcha tasdiqlangan haydovchilarga "
+            f"<i>\"Bugun ishga chiqasizmi?\"</i> so'rovi avtomatik yuboriladi.\n\n"
+            f"<b>{rep_str}</b> da esa javob berganlar ro'yxati guruhga e'lon qilinadi "
+            f"va javob bermaganlar avtomatik <i>ishlamayapti</i> deb belgilanadi.\n\n"
+            f"Vaqtni o'zgartirish uchun quyidagi tugmani bosing:"
+        )
+        bot.send_message(
+            message.chat.id,
+            text,
+            parse_mode='HTML',
+            reply_markup=keyboards.work_time_view_keyboard()
+        )
+
+    @bot.callback_query_handler(func=lambda c: c.data.startswith('work_time:'))
+    def work_time_callback(call):
+        if not middlewares.is_admin(call.from_user.id):
+            bot.answer_callback_query(call.id, "⛔ Ruxsat yo'q!")
+            return
+
+        action = call.data.split(':', 1)[1]
+
+        if action == 'change':
+            start_str = bot_settings.get_work_start_time_str()
+            bot.edit_message_text(
+                f"⏰ <b>Ish boshlash vaqtini tanlang yoki yangi vaqt kiriting:</b>\n\n"
+                f"Joriy vaqt: <code>{start_str}</code>",
+                call.message.chat.id,
+                call.message.message_id,
+                parse_mode='HTML',
+                reply_markup=keyboards.work_time_change_keyboard()
+            )
+            bot.answer_callback_query(call.id)
+            return
+
+        if action.startswith('set:'):
+            time_val = action.split(':', 1)[1]
+            parsed = bot_settings.parse_time_str(time_val)
+            if parsed:
+                h, m = parsed
+                bot_settings.set_work_start_time(h, m)
+                start_str = bot_settings.get_work_start_time_str()
+                rep_str = bot_settings.get_daily_report_time_str()
+
+                bot.edit_message_text(
+                    f"✅ <b>Ish boshlash vaqti muvaffaqiyatli o'zgartirildi!</b>\n\n"
+                    f"🌅 <b>Yangi vaqt:</b> <code>{start_str}</code>\n"
+                    f"📊 <b>Guruhga hisobot vaqti:</b> <code>{rep_str}</code>\n\n"
+                    f"Endi har kuni soat <b>{start_str}</b> da haydovchilarga so'rov yuboriladi.",
+                    call.message.chat.id,
+                    call.message.message_id,
+                    parse_mode='HTML',
+                    reply_markup=keyboards.work_time_view_keyboard()
+                )
+                bot.answer_callback_query(call.id, f"✅ Vaqt {start_str} ga o'rnatildi!")
+            else:
+                bot.answer_callback_query(call.id, "Xato: vaqt formati noto'g'ri!")
+            return
+
+        if action == 'custom':
+            waiting_for_work_time.add(call.from_user.id)
+            bot.answer_callback_query(call.id)
+            bot.send_message(
+                call.message.chat.id,
+                "⌨️ <b>Yangi ish boshlash vaqtini kiriting:</b>\n\n"
+                "Format: <code>HH:MM</code> (masalan: <code>05:45</code> yoki <code>06:15</code>)\n\n"
+                "(Bekor qilish uchun <b>❌ Bekor qilish</b> tugmasini bosing)",
+                parse_mode='HTML',
+                reply_markup=keyboards.cancel_keyboard()
+            )
+            return
+
+        if action == 'cancel':
+            waiting_for_work_time.discard(call.from_user.id)
+            start_str = bot_settings.get_work_start_time_str()
+            rep_str = bot_settings.get_daily_report_time_str()
+            bot.edit_message_text(
+                f"⏰ <b>Ertalabki ish boshlash vaqti sozlamalari</b>\n\n"
+                f"🌅 <b>Hozirgi vaqt:</b> <code>{start_str}</code>\n"
+                f"📊 <b>Guruhga hisobot vaqti:</b> <code>{rep_str}</code>",
+                call.message.chat.id,
+                call.message.message_id,
+                parse_mode='HTML',
+                reply_markup=keyboards.work_time_view_keyboard()
+            )
+            bot.answer_callback_query(call.id, "Bekor qilindi.")
+            return
+
+    @bot.message_handler(func=lambda m: m.from_user.id in waiting_for_work_time)
+    def process_custom_work_time(message):
+        if message.text == "❌ Bekor qilish":
+            waiting_for_work_time.discard(message.from_user.id)
+            bot.send_message(message.chat.id, "❌ Bekor qilindi.", reply_markup=keyboards.admin_menu_keyboard())
+            return
+
+        parsed = bot_settings.parse_time_str(message.text.strip())
+        if not parsed:
+            bot.send_message(
+                message.chat.id,
+                "❌ <b>Noto'g'ri vaqt formati!</b>\n\n"
+                "Iltimos, vaqtni <b>HH:MM</b> ko'rinishida kiriting (masalan: <code>05:45</code> yoki <code>06:00</code>):\n\n"
+                "(Bekor qilish uchun: ❌ Bekor qilish)",
+                parse_mode='HTML',
+                reply_markup=keyboards.cancel_keyboard()
+            )
+            return
+
+        waiting_for_work_time.discard(message.from_user.id)
+        h, m = parsed
+        bot_settings.set_work_start_time(h, m)
+        start_str = bot_settings.get_work_start_time_str()
+        rep_str = bot_settings.get_daily_report_time_str()
+
+        bot.send_message(
+            message.chat.id,
+            f"✅ <b>Ish boshlash vaqti muvaffaqiyatli o'zgartirildi!</b>\n\n"
+            f"🌅 <b>Yangi vaqt:</b> <code>{start_str}</code>\n"
+            f"📊 <b>Guruhga hisobot vaqti:</b> <code>{rep_str}</code>\n\n"
+            f"Endi har kuni soat <b>{start_str}</b> da haydovchilarga so'rov yuboriladi va "
+            f"<b>{rep_str}</b> da guruhga hisobot beriladi.",
+            parse_mode='HTML',
+            reply_markup=keyboards.admin_menu_keyboard()
+        )
+
+    # ── So'rovlar va ro'yxat ──────────────────────────────────
 
     @bot.message_handler(func=lambda m: m.text == "📋 Kutayotgan so'rovlar" and middlewares.is_admin(m.from_user.id))
     def pending_requests(message):
