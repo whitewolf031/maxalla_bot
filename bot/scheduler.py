@@ -14,6 +14,10 @@ except ImportError:
 
 logger = logging.getLogger(__name__)
 
+# Global instances for dynamic rescheduling
+_scheduler = None
+_bot = None
+
 
 def now_tashkent() -> str:
     return datetime.now(TASHKENT_TZ).strftime('%d.%m.%Y %H:%M')
@@ -23,12 +27,14 @@ def today_tashkent() -> str:
     return datetime.now(TASHKENT_TZ).strftime('%d.%m.%Y')
 
 
-# ── 05:00 — Ertalabki so'rov ─────────────────────────────────
+# ── Ertalabki so'rov (Ishga chiqasizmi?) ─────────────────────
 def send_morning_checkin(bot):
     import api_client
     import keyboards
+    import bot_settings
 
-    logger.info("⏰ 05:00 — Ertalabki so'rovlar yuborilmoqda...")
+    start_str = bot_settings.get_work_start_time_str()
+    logger.info(f"⏰ {start_str} — Ertalabki so'rovlar yuborilmoqda...")
     drivers = api_client.get_approved_drivers()
     if not drivers:
         logger.info("Tasdiqlangan haydovchilar yo'q.")
@@ -52,12 +58,14 @@ def send_morning_checkin(bot):
     logger.info(f"Ertalabki so'rov {len(drivers)} ta haydovchiga yuborildi.")
 
 
-# ── 05:15 — Guruhga kunlik ro'yxat ───────────────────────────
+# ── Guruhga kunlik hisobot ──────────────────────────────────
 def send_daily_report(bot):
     import api_client
+    import bot_settings
     from config import GROUP_CHAT_ID
 
-    logger.info("⏰ 05:15 — Kunlik hisobot guruhga yuborilmoqda...")
+    rep_str = bot_settings.get_daily_report_time_str()
+    logger.info(f"⏰ {rep_str} — Kunlik hisobot guruhga yuborilmoqda...")
 
     # Javob bermaganlarni not_working ga o'tkazamiz
     approved = api_client.get_approved_drivers()
@@ -71,7 +79,7 @@ def send_daily_report(bot):
             try:
                 bot.send_message(
                     driver['telegram_id'],
-                    f"⏰ Siz soat 5:15 gacha javob bermagansiz.\n"
+                    f"⏰ Siz soat {rep_str} gacha javob bermagansiz.\n"
                     f"Bugun <b>ishlamayapdi</b> deb belgilandi.\n"
                     f"Agar xato bo'lsa — /driver → Ishni boshlash.",
                     parse_mode='HTML'
@@ -229,22 +237,73 @@ def reset_at_midnight(bot):
         logger.error("  ✗ Tozalashda xato!")
 
 
+# ── Schedulerni dinamik yangilash (Admin vaqtni o'zgartirganda) ─
+def update_morning_schedule(new_hour: int, new_minute: int) -> bool:
+    """
+    Admin ertalabki ish vaqtini o'zgartirganda,
+    APScheduler joblarini to'xtatmasdan yangi vaqtga qayta sozlaydi.
+    """
+    global _scheduler, _bot
+    if not _scheduler:
+        logger.warning("Scheduler hali ishga tushirilmagan.")
+        return False
+
+    rep_total = (new_hour * 60 + new_minute + 15) % (24 * 60)
+    rep_h, rep_m = rep_total // 60, rep_total % 60
+
+    try:
+        if _scheduler.get_job('morning_checkin'):
+            _scheduler.reschedule_job('morning_checkin', trigger='cron', hour=new_hour, minute=new_minute)
+        elif _bot:
+            _scheduler.add_job(send_morning_checkin, 'cron', hour=new_hour, minute=new_minute, args=[_bot], id='morning_checkin')
+        logger.info(f"✅ morning_checkin yangi vaqtga o'tkazildi: {new_hour:02d}:{new_minute:02d}")
+    except Exception as e:
+        logger.error(f"morning_checkin reschedule xatosi: {e}")
+        return False
+
+    try:
+        if _scheduler.get_job('daily_report'):
+            _scheduler.reschedule_job('daily_report', trigger='cron', hour=rep_h, minute=rep_m)
+        elif _bot:
+            _scheduler.add_job(send_daily_report, 'cron', hour=rep_h, minute=rep_m, args=[_bot], id='daily_report')
+        logger.info(f"✅ daily_report yangi vaqtga o'tkazildi: {rep_h:02d}:{rep_m:02d}")
+    except Exception as e:
+        logger.error(f"daily_report reschedule xatosi: {e}")
+        return False
+
+    return True
+
+
 # ── Scheduler sozlash ─────────────────────────────────────────
 def setup_scheduler(bot):
+    global _scheduler, _bot
+    import bot_settings
     from config import LOCATION_PROMPT_INTERVAL_MINUTES
 
+    _bot = bot
     scheduler = BackgroundScheduler(timezone=TASHKENT_TZ)
+    _scheduler = scheduler
 
-    scheduler.add_job(send_morning_checkin, 'cron', hour=5, minute=0,
+    start_h, start_m = bot_settings.get_work_start_time()
+    rep_h, rep_m = bot_settings.get_daily_report_time()
+
+    # Ertalabki so'rov
+    scheduler.add_job(send_morning_checkin, 'cron', hour=start_h, minute=start_m,
                       args=[bot], id='morning_checkin')
-    scheduler.add_job(send_daily_report, 'cron', hour=5, minute=15,
+
+    # Guruhga hisobot (+15 daqiqa)
+    scheduler.add_job(send_daily_report, 'cron', hour=rep_h, minute=rep_m,
                       args=[bot], id='daily_report')
+
+    # Kechki so'rovlar
     scheduler.add_job(send_evening_checkin, 'cron', hour=20, minute=0,
                       args=[bot, '20:00'], id='evening_2000')
     scheduler.add_job(send_evening_checkin, 'cron', hour=20, minute=30,
                       args=[bot, '20:30'], id='evening_2030')
     scheduler.add_job(send_evening_checkin, 'cron', hour=21, minute=0,
                       args=[bot, '21:00'], id='evening_2100')
+
+    # Yarim kechada tozalash
     scheduler.add_job(reset_at_midnight, 'cron', hour=0, minute=0,
                       args=[bot], id='midnight_reset')
 
@@ -254,12 +313,16 @@ def setup_scheduler(bot):
                       args=[bot], id='location_prompts')
 
     scheduler.start()
+
+    start_str = f"{start_h:02d}:{start_m:02d}"
+    rep_str = f"{rep_h:02d}:{rep_m:02d}"
+
     logger.info(
         f"✅ APScheduler ishga tushdi (Asia/Tashkent):\n"
-        f"   00:00 — Yarim kechada tozalash\n"
-        f"   05:00 — Ertalabki so'rov\n"
-        f"   05:15 — Kunlik hisobot guruhga\n"
+        f"   {start_str} — Ertalabki so'rov (Ishga chiqasizmi?)\n"
+        f"   {rep_str} — Kunlik hisobot guruhga\n"
         f"   Har {LOCATION_PROMPT_INTERVAL_MINUTES} daqiqada — Haydovchilarga 'Qayerdasiz?' so'rovi\n"
-        f"   20:00 / 20:30 / 21:00 — Kechki so'rov"
+        f"   20:00 / 20:30 / 21:00 — Kechki so'rov\n"
+        f"   00:00 — Yarim kechada tozalash"
     )
     return scheduler

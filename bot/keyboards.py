@@ -33,8 +33,9 @@ def admin_menu_keyboard():
     markup.add(
         types.KeyboardButton("📋 Kutayotgan so'rovlar"),
         types.KeyboardButton("✅ Tasdiqlangan haydovchilar"),
-        types.KeyboardButton("📢 Elon tarqatish"),
         types.KeyboardButton("📊 Bugungi holat"),
+        types.KeyboardButton("⏰ Ish boshlash vaqti"),
+        types.KeyboardButton("📢 Elon tarqatish"),
         types.KeyboardButton("🔙 Asosiy menyu")
     )
     return markup
@@ -52,7 +53,7 @@ def driver_approval_keyboard(driver_id):
 
 
 def daily_checkin_keyboard():
-    """Ertalab 05:00 — Ishga chiqasizmi?"""
+    """Ertalabki so'rov — Ishga chiqasizmi?"""
     markup = types.InlineKeyboardMarkup(row_width=2)
     markup.add(
         types.InlineKeyboardButton("✅ Ha, chiqaman",    callback_data="checkin:yes"),
@@ -120,4 +121,31 @@ def driver_location_prompt_keyboard():
 def cancel_keyboard():
     markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
     markup.add(types.KeyboardButton("❌ Bekor qilish"))
+    return markup
+
+
+def work_time_view_keyboard():
+    markup = types.InlineKeyboardMarkup(row_width=1)
+    markup.add(
+        types.InlineKeyboardButton("✏️ Vaqtni o'zgartirish", callback_data="work_time:change")
+    )
+    return markup
+
+
+def work_time_change_keyboard():
+    markup = types.InlineKeyboardMarkup(row_width=3)
+    markup.add(
+        types.InlineKeyboardButton("05:00", callback_data="work_time:set:05:00"),
+        types.InlineKeyboardButton("05:30", callback_data="work_time:set:05:30"),
+        types.InlineKeyboardButton("06:00", callback_data="work_time:set:06:00"),
+        types.InlineKeyboardButton("06:30", callback_data="work_time:set:06:30"),
+        types.InlineKeyboardButton("07:00", callback_data="work_time:set:07:00"),
+        types.InlineKeyboardButton("07:30", callback_data="work_time:set:07:30")
+    )
+    markup.add(
+        types.InlineKeyboardButton("⌨️ Boshqa vaqt kiritish", callback_data="work_time:custom")
+    )
+    markup.add(
+        types.InlineKeyboardButton("🔙 Bekor qilish", callback_data="work_time:cancel")
+    )
     return markup
