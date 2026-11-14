@@ -305,6 +305,8 @@ def register_driver_handlers(bot: telebot.TeleBot):
             return
 
         now = now_tashkent()
+        phone = driver.get('phone_number', '')
+        phone_line = f"📞 Tel: {phone}\n" if phone else ""
 
         if action == 'start':
             # Ishni boshlash — working statusga o'tkazish
@@ -314,6 +316,7 @@ def register_driver_handlers(bot: telebot.TeleBot):
             group_text = (
                 f"🟢 <b>{driver['full_name']}</b> ishni boshladi!\n"
                 f"🚗 {driver['car_name']} | <code>{driver['car_number']}</code>\n"
+                f"{phone_line}"
                 f"🕐 {now}"
             )
             personal_text = f"✅ Ishni boshladingiz deb belgilandi.\n🕐 {now}"
@@ -338,6 +341,7 @@ def register_driver_handlers(bot: telebot.TeleBot):
             group_text = (
                 f"🔴 <b>{driver['full_name']}</b> ishni tugatdi.\n"
                 f"🚗 {driver['car_name']} | <code>{driver['car_number']}</code>\n"
+                f"{phone_line}"
                 f"🕐 {now}"
             )
             personal_text = f"✅ Ishni tugatdingiz deb belgilandi.\n🕐 {now}"
@@ -411,11 +415,15 @@ def register_driver_handlers(bot: telebot.TeleBot):
             )
             bot.answer_callback_query(call.id, "✅ Ish tugadi!")
 
+            phone = driver.get('phone_number', '')
+            phone_line = f"📞 Tel: {phone}\n" if phone else ""
+
             try:
                 bot.send_message(
                     GROUP_CHAT_ID,
                     f"🔴 <b>{driver['full_name']}</b> bugungi ishini yakunladi.\n"
                     f"🚗 {driver['car_name']} | <code>{driver['car_number']}</code>\n"
+                    f"{phone_line}"
                     f"🕐 {now}",
                     parse_mode='HTML'
                 )
@@ -505,11 +513,14 @@ def register_driver_handlers(bot: telebot.TeleBot):
         if driver and driver.get('status') == 'approved':
             # Haydovchi — o'z joylashuvini belgilaydi
             api_client.update_driver_location(call.from_user.id, location)
+            phone = driver.get('phone_number', '')
+            phone_line = f"📞 Tel: {phone}\n" if phone else ""
 
             try:
                 bot.send_message(
                     GROUP_CHAT_ID,
                     f"📍 <b>{driver['full_name']}</b> ({driver['car_name']} | <code>{driver['car_number']}</code>)\n"
+                    f"{phone_line}"
                     f"{loc_name} da turibdi! ✅\n"
                     f"🕐 {now}",
                     parse_mode='HTML'
@@ -561,10 +572,13 @@ def register_driver_handlers(bot: telebot.TeleBot):
         driver = middlewares.get_driver(message.from_user.id)
         api_client.update_driver_location(message.from_user.id, 'mahalla', 'mahalla_to_oydin')
         now = now_tashkent()
+        phone = driver.get('phone_number', '') if driver else ''
+        phone_line = f"📞 Tel: {phone}\n" if phone else ""
         try:
             bot.send_message(
                 GROUP_CHAT_ID,
                 f"🚗 <b>{driver['full_name']}</b> ({driver['car_name']} | <code>{driver['car_number']}</code>)\n"
+                f"{phone_line}"
                 f"Mahalladan Oydin tomon harakatlanishni boshladi! 🚏\n"
                 f"🕐 {now}",
                 parse_mode='HTML'
@@ -581,10 +595,13 @@ def register_driver_handlers(bot: telebot.TeleBot):
         driver = middlewares.get_driver(message.from_user.id)
         api_client.update_driver_location(message.from_user.id, 'oydin', 'mahalla_to_oydin')
         now = now_tashkent()
+        phone = driver.get('phone_number', '') if driver else ''
+        phone_line = f"📞 Tel: {phone}\n" if phone else ""
         try:
             bot.send_message(
                 GROUP_CHAT_ID,
                 f"🚗 <b>{driver['full_name']}</b> ({driver['car_name']} | <code>{driver['car_number']}</code>)\n"
+                f"{phone_line}"
                 f"Mahallaning oxirgi astanovkasidan Oydin tomon yo'lga chiqdi! 🚏➡️\n"
                 f"🕐 {now}",
                 parse_mode='HTML'
@@ -611,11 +628,14 @@ def register_driver_handlers(bot: telebot.TeleBot):
         }
         text = direction_texts.get(direction, "Joylashuv yangilandi")
         now = now_tashkent()
+        phone = driver.get('phone_number', '') if driver else ''
+        phone_line = f"📞 Tel: {phone}\n" if phone else ""
 
         try:
             bot.send_message(
                 GROUP_CHAT_ID,
                 f"📍 <b>{driver['full_name']}</b> ({driver['car_name']} | <code>{driver['car_number']}</code>)\n"
+                f"{phone_line}"
                 f"{text}\n🕐 {now}",
                 parse_mode='HTML'
             )
@@ -633,6 +653,7 @@ def register_driver_handlers(bot: telebot.TeleBot):
                 "telegram_id": call.from_user.id,
                 "driver_id": driver.get('id'),
                 "driver_name": driver.get('full_name'),
+                "phone_number": phone,
                 "car_name": driver.get('car_name'),
                 "car_number": driver.get('car_number'),
                 "location": location,
@@ -657,35 +678,37 @@ def register_driver_handlers(bot: telebot.TeleBot):
         now = now_tashkent()
         driver_name = driver.get('full_name', 'Haydovchi')
         car_info = f"{driver.get('car_name', '')} | <code>{driver.get('car_number', '')}</code>"
+        phone = driver.get('phone_number', '')
+        phone_line = f"📞 Tel: {phone}\n" if phone else ""
 
         if action == 'mahalla':
             api_client.update_driver_location(uid, 'mahalla')
             loc_title = "🏘️ Mahallada (astanovkada)"
-            group_msg = f"📍 <b>{driver_name}</b> ({car_info})\nMahalladagi astanovkada turibdi! ✅\n🕐 {now}"
+            group_msg = f"📍 <b>{driver_name}</b> ({car_info})\n{phone_line}Mahalladagi astanovkada turibdi! ✅\n🕐 {now}"
             ws_loc = "mahalla"
             ws_dir = None
         elif action == 'oydin':
             api_client.update_driver_location(uid, 'oydin')
             loc_title = "🚏 Oydin astanovka"
-            group_msg = f"📍 <b>{driver_name}</b> ({car_info})\nOydin astanovkada turibdi! ✅\n🕐 {now}"
+            group_msg = f"📍 <b>{driver_name}</b> ({car_info})\n{phone_line}Oydin astanovkada turibdi! ✅\n🕐 {now}"
             ws_loc = "oydin"
             ws_dir = None
         elif action == 'moving_mahalla':
             api_client.update_driver_location(uid, 'mahalla', 'mahalla_to_oydin')
             loc_title = "🚗 Mahalladan Oydin tomon yo'lda"
-            group_msg = f"🚗 <b>{driver_name}</b> ({car_info})\nMahalladan Oydin tomon yo'lga chiqdi! 🚏\n🕐 {now}"
+            group_msg = f"🚗 <b>{driver_name}</b> ({car_info})\n{phone_line}Mahalladan Oydin tomon yo'lga chiqdi! 🚏\n🕐 {now}"
             ws_loc = "mahalla"
             ws_dir = "mahalla_to_oydin"
         elif action == 'moving_oydin':
             api_client.update_driver_location(uid, 'oydin', 'oydin_to_mahalla')
             loc_title = "↩️ Oydindan Mahalla tomon yo'lda"
-            group_msg = f"↩️ <b>{driver_name}</b> ({car_info})\nOydindan Mahalla tomon qaytmoqda! 🏘️\n🕐 {now}"
+            group_msg = f"↩️ <b>{driver_name}</b> ({car_info})\n{phone_line}Oydindan Mahalla tomon qaytmoqda! 🏘️\n🕐 {now}"
             ws_loc = "oydin"
             ws_dir = "oydin_to_mahalla"
         elif action == 'pause':
             api_client.set_daily_status(uid, 'working', location='Tanaffus')
             loc_title = "⏸️ Tanaffusda"
-            group_msg = f"⏸️ <b>{driver_name}</b> ({car_info})\nQisqa tanaffusga chiqdi.\n🕐 {now}"
+            group_msg = f"⏸️ <b>{driver_name}</b> ({car_info})\n{phone_line}Qisqa tanaffusga chiqdi.\n🕐 {now}"
             ws_loc = "tanaffus"
             ws_dir = None
         else:
@@ -718,6 +741,7 @@ def register_driver_handlers(bot: telebot.TeleBot):
                 "telegram_id": uid,
                 "driver_id": driver.get('id'),
                 "driver_name": driver_name,
+                "phone_number": phone,
                 "car_name": driver.get('car_name'),
                 "car_number": driver.get('car_number'),
                 "location": ws_loc,
